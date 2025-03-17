@@ -1,7 +1,6 @@
 import socket
 import threading
 import sys
-import time
 from datetime import datetime
 MAX_CLIENTS = 3
 MAX_DATA_RECV = 1024
@@ -23,8 +22,8 @@ def start_server():
 
         with client_lock:
             if len(clients) >= MAX_CLIENTS:
-                print(f"[{datetime.now()}] Max clients reached. Refusing connection from {address}")
-                client_socket.send("Server is full. Try again later.".encode('utf-8'))
+                print(f"[{datetime.now()}] Max clients reached, no connect {address}")
+                client_socket.send("Server is full.".encode('utf-8'))
                 client_socket.close()
                 continue
 
@@ -55,7 +54,7 @@ def handle_client(client_socket, address):
         with client_lock:
             clients.remove(client_socket)
         client_socket.close()
-        
+
 if __name__ == "__main__":
     try:
         start_server()
