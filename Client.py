@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import socket
 import sys
 import argparse
@@ -13,10 +14,12 @@ def parse_args():
 
 def send_file(client_socket, file_path):
     if not os.path.exists(file_path):
-        print("File not found")
+        print(f"File '{file_path}' not found.")
+        client_socket.close()
         sys.exit(1)
     filename = os.path.basename(file_path)
     filesize = os.path.getsize(file_path)
+    print(f"Sending {filename}, size {filesize} bytes...")
     header = f"FILE:{filename}:{filesize}\n".encode('utf-8')
     client_socket.send(header)
     with open(file_path, "rb") as f:
@@ -25,13 +28,17 @@ def send_file(client_socket, file_path):
             if not data:
                 break
             client_socket.send(data)
-    ack = client_socket.recv(1024).decode('utf-8')
-    print(ack)
+    print("File sent. Waiting for acknowledgment...")
+    try:
+        ack = client_socket.recv(1024).decode('utf-8')
+        print("Server response:", ack)
+    except Exception as e:
+        print("Error receiving acknowledgment:", e)
 
 def interactive_mode(client_socket):
     try:
         while True:
-            inp = input()
+            inp = input("Enter message (or 'exit' to quit): ")
             if inp.lower() == 'exit':
                 break
             client_socket.send(inp.encode('utf-8'))
@@ -45,6 +52,7 @@ def main():
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         client_socket.connect((args.host, args.port))
+        print(f"Connected to server at {args.host}:{args.port}")
     except Exception as e:
         print("Connection failed:", e)
         sys.exit(1)
