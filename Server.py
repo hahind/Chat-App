@@ -91,6 +91,31 @@ def handleClient(clientSocket, addr):
         connection_sem.release()
         print(f"[{datetime.now()}] Client {addr} disconnected.")
 
+def handleFileTransfer(clientSocket, header):
+    try:
+        header_parts = header.strip().split(":")
+        if len(header_parts) != 3:
+            clientSocket.send(b"Invalid file header.")
+            return
+        _, filename, filesize_str = header_parts
+        filesize = int(filesize_str)
+        allowed = (".pdf", ".docx", ".jpeg")
+        if not filename.lower().endswith(allowed):
+            clientSocket.send(b"File type not allowed.")
+            return
+
+        file_data = b""
+        while len(file_data) < filesize:
+            chunk = clientSocket.recv(min(1024, filesize - len(file_data)))
+            if not chunk:
+                break
+            file_data += chunk
+        with open("received_" + filename, "wb") as f:
+            f.write(file_data)
+        clientSocket.send(f"File received: {filename}".encode('utf-8'))
+    except Exception as e:
+        clientSocket.send(f"Error receiving file: {e}".encode('utf-8'))
+
 def interactiveMode(clientSocket):
     try:
         while True:
@@ -99,6 +124,11 @@ def interactiveMode(clientSocket):
             if not data:
                 break
             text = data.decode('utf-8').strip()
+            print(f"DEBUG SERVER: Received message: {text}")
+
+            if text.lower().startswith("file:"):
+                handleFileTransfer(clientSocket, text)
+                continue
             if text.lower() == "exit":
                 break
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -106,6 +136,7 @@ def interactiveMode(clientSocket):
             clientSocket.send(f"Server received: {text}".encode('utf-8'))
     except Exception as e:
         print("Interactive mode error:", e)
+
 
 if __name__ == "__main__":
     try:

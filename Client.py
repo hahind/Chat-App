@@ -12,6 +12,10 @@ def parseArgs():
     return parser.parse_args()
 
 def sendFile(clientSocket, filePath):
+    allowed_extensions = ['.pdf', '.docx', '.jpeg']
+    if not any(filePath.endswith(ext) for ext in allowed_extensions):
+        print("File type not allowed.")
+        return
     if not os.path.exists(filePath):
         print(f"File '{filePath}' not found.")
         clientSocket.close()
@@ -26,7 +30,7 @@ def sendFile(clientSocket, filePath):
             if not chunk:
                 break
             clientSocket.send(chunk)
-    print("File sent. Waiting for ack...")
+    print("File sent. Waiting for acknowledgment...")
     ack = clientSocket.recv(1024).decode('utf-8')
     print("Server:", ack)
 
