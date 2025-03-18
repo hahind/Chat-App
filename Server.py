@@ -60,19 +60,23 @@ def handleClient(clientSocket, addr):
     try:
         clientSocket.send(b"Welcome to LU-Connect. Type 'register' or 'login': ")
         action = clientSocket.recv(MAX_DATA_RECV).decode('utf-8').strip().lower()
+        print(action)
         if action not in ("register", "login"):
             clientSocket.send(b"Invalid option.")
             clientSocket.close()
             return
         clientSocket.send(b"Username: ")
         username = clientSocket.recv(MAX_DATA_RECV).decode('utf-8').strip()
+        print(username)
         clientSocket.send(b"Password: ")
         password = clientSocket.recv(MAX_DATA_RECV).decode('utf-8').strip()
+        print(password)
         if action == "register":
             success, msg = auth_m.registerUser(username, password)
         else:
             success, msg = auth_m.loginUser(username, password)
         clientSocket.send(msg.encode('utf-8'))
+        print(success)
         if not success:
             clientSocket.close()
             return

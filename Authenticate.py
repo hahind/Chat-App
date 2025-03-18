@@ -27,7 +27,7 @@ class AuthManager:
             conn.close()
             return False, "User already exists."
         hashed_owd = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
-        cur.execute("INSERT INTO users (username, pwdHash) VALUES (?, ?)", (username,  hashed_owd))
+        cur.execute("INSERT INTO users (username, pwdHash) VALUES (?, ?)", (username, hashed_owd))
         conn.commit()
         conn.close()
         return True, "User registered successfully."

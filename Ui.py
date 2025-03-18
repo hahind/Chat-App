@@ -12,16 +12,41 @@ def handleLoginAttempt():
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((HOST, PORT))
-        # Send login protocol items in sequence
-        for item in ["login", usr, pwd]:
-            sock.sendall(item.encode("utf-8"))
-            time.sleep(0.1)
+        
+        welcome = sock.recv(BUFFER_SIZE).decode("utf-8")
+        print("Server says:", welcome)
+        
+
+        sock.sendall("login".encode("utf-8"))
+        time.sleep(0.1)
+        
+        usr_prompt = sock.recv(BUFFER_SIZE).decode("utf-8")
+        print("Server says:", usr_prompt)
+        sock.sendall(usr.encode("utf-8"))
+        time.sleep(0.1)
+        
+        pwd_prompt = sock.recv(BUFFER_SIZE).decode("utf-8")
+        print("Server says:", pwd_prompt)
+        sock.sendall(pwd.encode("utf-8"))
+        time.sleep(0.1)
+        
         reply = sock.recv(BUFFER_SIZE).decode("utf-8")
         print("Server reply:", reply)
+        if "successful" in reply.lower():
+            buildChatUI()  # Switch to chat UI
+        else:
+            print("Login failed:", reply)
     except Exception as e:
         print("Login attempt error:", e)
     finally:
         sock.close()
+
+
+def buildChatUI():
+    for widget in tkinter.winfo_children():
+        widget.destroy()
+    chat_label = tk.Label(tkinter, text="Hello, you are now in the chat!")
+    chat_label.pack(padx=20, pady=20)
 
 tkinter = tk.Tk()
 tkinter.title("UI for User")
@@ -38,12 +63,8 @@ password_label.pack(padx=20, pady=5)
 
 password_entry = tk.Entry(tkinter, show="*", width=30)
 password_entry.pack(padx=20, pady=5)
-def submitAction():
-    username = username_entry.get()
-    password = password_entry.get()
-    print(f"Username: {username}, Password: {password}")
 
-submit_button = tk.Button(tkinter, text="Submit", command=submitAction)
+submit_button = tk.Button(tkinter, text="Submit", command=handleLoginAttempt)
 submit_button.pack(padx=20, pady=20)
 
 tkinter.mainloop()
