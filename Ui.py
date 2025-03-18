@@ -1,4 +1,27 @@
 import tkinter as tk
+import socket
+import time
+
+HOST = '127.0.0.1'
+PORT = 8080
+BUFFER_SIZE = 1024
+
+def handleLoginAttempt():
+    usr = username_entry.get().strip()
+    pwd = password_entry.get().strip()
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((HOST, PORT))
+        # Send login protocol items in sequence
+        for item in ["login", usr, pwd]:
+            sock.sendall(item.encode("utf-8"))
+            time.sleep(0.1)
+        reply = sock.recv(BUFFER_SIZE).decode("utf-8")
+        print("Server reply:", reply)
+    except Exception as e:
+        print("Login attempt error:", e)
+    finally:
+        sock.close()
 
 tkinter = tk.Tk()
 tkinter.title("UI for User")
