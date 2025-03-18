@@ -3,6 +3,7 @@ import socket
 import threading
 import sys
 from datetime import datetime
+from Authenticate import AuthManager
 
 MAX_CLIENTS = 3
 MAX_DATA_RECV = 1024
@@ -10,82 +11,75 @@ SERVER_IP = '127.0.0.1'
 SERVER_PORT = 8080
 
 clients = []
-client_lock = threading.Lock()
+clientLock = threading.Lock()
+authMgr = AuthManager()
 
-def start_server():
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((SERVER_IP, SERVER_PORT))
-    server_socket.listen(MAX_CLIENTS)
-    print(f"Server listening on {SERVER_IP}:{SERVER_PORT} (max {MAX_CLIENTS} clients)")
+def startServer():
+    serverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    serverSocket.bind((SERVER_IP, SERVER_PORT))
+    serverSocket.listen(MAX_CLIENTS)
+    print(f"Server listening on {SERVER_IP}:{SERVER_PORT} (max {MAX_CLIENTS})")
     while True:
-        client_socket, address = server_socket.accept()
-        with client_lock:
+        clientSocket, address = serverSocket.accept()
+        with clientLock:
             if len(clients) >= MAX_CLIENTS:
-                client_socket.send("Server is full. Try again later.".encode('utf-8'))
-                client_socket.close()
+                clientSocket.send("Server is full. Try again later.".encode('utf-8'))
+                clientSocket.close()
                 continue
-        threading.Thread(target=handle_client, args=(client_socket, address)).start()
+        threading.Thread(target=handleClient, args=(clientSocket, address)).start()
 
-def handle_client(client_socket, address):
-    print(f"[{datetime.now()}] New connection from {address}")
-    with client_lock:
-        clients.append(client_socket)
+def handleClient(clientSocket, addr):
+    print(f"[{datetime.now()}] New connection from {addr}")
+    with clientLock:
+        clients.append(clientSocket)
+    try:
+        clientSocket.send(b"Welcome to LU-Connect. Type 'register' or 'login': ")
+        action = clientSocket.recv(MAX_DATA_RECV).decode('utf-8').strip().lower()
+        if action not in ("register", "login"):
+            clientSocket.send(b"Invalid option.")
+            clientSocket.close()
+            return
+        clientSocket.send(b"Username: ")
+        username = clientSocket.recv(MAX_DATA_RECV).decode('utf-8').strip()
+        clientSocket.send(b"Password: ")
+        password = clientSocket.recv(MAX_DATA_RECV).decode('utf-8').strip()
+        if action == "register":
+            success, msg = authMgr.registerUser(username, password)
+        else:
+            success, msg = authMgr.loginUser(username, password)
+        clientSocket.send(msg.encode('utf-8'))
+        if not success:
+            clientSocket.close()
+            return
+        interactiveMode(clientSocket)
+    except Exception as e:
+        print(f"Error with {addr}: {e}")
+    finally:
+        with clientLock:
+            if clientSocket in clients:
+                clients.remove(clientSocket)
+        clientSocket.close()
+        print(f"[{datetime.now()}] Client {addr} disconnected.")
+
+def interactiveMode(clientSocket):
     try:
         while True:
-            data = client_socket.recv(MAX_DATA_RECV)
+            clientSocket.send(b"Enter message ('exit' to quit): ")
+            data = clientSocket.recv(MAX_DATA_RECV)
             if not data:
                 break
-            if data.startswith(b"FILE:"):
-                if b'\n' in data:
-                    header_line, remainder = data.split(b'\n', 1)
-                else:
-                    header_line = data
-                    remainder = b''
-                try:
-                    header_text = header_line.decode('utf-8').strip()
-                    parts = header_text.split(':')
-                    if len(parts) < 3:
-                        continue
-                    _, filename, filesize_str = parts[:3]
-                    filesize = int(filesize_str)
-                except Exception as e:
-                    print(f"Error parsing header from {address}: {e}")
-                    continue
-                print(f"[{datetime.now()}] Receiving file '{filename}' of size {filesize} bytes from {address}")
-                file_data = remainder
-                while len(file_data) < filesize:
-                    chunk = client_socket.recv(min(MAX_DATA_RECV, filesize - len(file_data)))
-                    if not chunk:
-                        break
-                    file_data += chunk
-                try:
-                    with open("received_" + filename, "wb") as f:
-                        f.write(file_data)
-                    print(f"[{datetime.now()}] File received and saved as 'received_{filename}'")
-                    client_socket.send(f"File received: {filename}".encode('utf-8'))
-                except Exception as e:
-                    client_socket.send(f"Error saving file: {e}".encode('utf-8'))
-                continue
-            else:
-                try:
-                    message = data.decode('utf-8')
-                except:
-                    continue
-                print(f"[{datetime.now()}] {address} says: {message}")
-                response = f"Server received: {message}"
-                client_socket.send(response.encode('utf-8'))
+            text = data.decode('utf-8').strip()
+            if text.lower() == "exit":
+                break
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            print(f"[{timestamp}] Message from client: {text}")
+            clientSocket.send(f"Server received: {text}".encode('utf-8'))
     except Exception as e:
-        print(f"Error with {address}: {e}")
-    finally:
-        with client_lock:
-            if client_socket in clients:
-                clients.remove(client_socket)
-        client_socket.close()
-        print(f"[{datetime.now()}] Client {address} disconnected.")
+        print("Interactive mode error:", e)
 
 if __name__ == "__main__":
     try:
-        start_server()
+        startServer()
     except KeyboardInterrupt:
         print("Server shutting down.")
         sys.exit()
