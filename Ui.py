@@ -1,44 +1,57 @@
 import tkinter as tk
 from tkinter import scrolledtext, messagebox, filedialog
-import socket, threading, time, os
-from encryption_util import encrypt_message, decrypt_message
+import socket, threading
+import winsound
+from encryption_util import decrypt_message 
 
 HOST = '127.0.0.1'
 PORT = 8080
 BUFFER_SIZE = 1024
 
 client_socket = None
+notifications_enabled = True
 
-def buildChatUI():
-    for widget in tkinter.winfo_children():
-        widget.destroy()
-    print("DEBUG: client_socket after login:", client_socket)
-    global chat_area, message_entry
-    chat_frame = tk.Frame(tkinter)
-    chat_frame.pack(fill="both", expand=True)
-    
-    chat_area = scrolledtext.ScrolledText(chat_frame, state="disabled", wrap="word")
-    chat_area.pack(fill="both", expand=True, padx=20, pady=10)
-    
-    bottom_frame = tk.Frame(chat_frame)
-    bottom_frame.pack(fill="x", padx=20, pady=10)
-    
-    message_entry = tk.Entry(bottom_frame)
-    message_entry.pack(side="left", fill="x", expand=True)
-    message_entry.bind("<Return>", sendMessage)
-    message_entry.focus_set()
-    
-    send_button = tk.Button(bottom_frame, text="Send", command=sendMessage)
-    send_button.pack(side="left", padx=5)
-    
-    file_button = tk.Button(bottom_frame, text="Send File", command=sendFileUI)
-    file_button.pack(side="left", padx=5)
-    
-    threading.Thread(target=receiveMessages, daemon=True).start()
+def toggle_notifications():
+    global notifications_enabled
+    notifications_enabled = not notifications_enabled
+    if notifications_enabled:
+        mute_button.config(text="Mute")
+    else:
+        mute_button.config(text="Unmute")
+
+def receiveMessages():
+
+    try:
+        while True:
+            data = client_socket.recv(BUFFER_SIZE)
+            if not data:
+                break
+            text = data.decode('utf-8', errors='replace').strip()
+
+            if text.startswith("ENC:"):
+                enc_part = text[4:]
+                try:
+                    decrypted_text = decrypt_message(enc_part)
+                    text = decrypted_text
+                except Exception as e:
+                    print("Decryption error:", e)
+
+            chat_area.config(state="normal")
+            chat_area.insert(tk.END, text + "\n")
+            chat_area.config(state="disabled")
+            chat_area.see(tk.END)
+
+            if notifications_enabled:
+                try:
+                    winsound.PlaySound("notification.wav", winsound.SND_FILENAME | winsound.SND_ASYNC)
+                except Exception as e:
+                    print("Sound error:", e)
+    except Exception as e:
+        print("Receive error:", e)
 
 def sendMessage(event=None):
+
     msg = message_entry.get().strip()
-    print("DEBUG: Attempting to send:", msg)
     if msg and client_socket:
         try:
             client_socket.sendall(msg.encode("utf-8"))
@@ -52,103 +65,97 @@ def sendFileUI():
         filetypes=[("Allowed files", "*.pdf *.docx *.jpeg"), ("All files", "*.*")]
     )
     if file_path:
-        sendFile(client_socket, file_path)
+        pass
 
-def sendFile(sock, filePath):
-    allowed_extensions = ['.pdf', '.docx', '.jpeg']
-    if not any(filePath.lower().endswith(ext) for ext in allowed_extensions):
-        messagebox.showerror("File Error", "File type not allowed.")
-        return
-    if not os.path.exists(filePath):
-        messagebox.showerror("File Error", f"File '{filePath}' not found.")
-        return
-    fname = os.path.basename(filePath)
-    fsize = os.path.getsize(filePath)
-    header = f"FILE:{fname}:{fsize}\n".encode('utf-8')
-    try:
-        sock.sendall(header)
-        with open(filePath, "rb") as f:
-            while True:
-                chunk = f.read(1024)
-                if not chunk:
-                    break
-                sock.sendall(chunk)
-        ack = sock.recv(BUFFER_SIZE).decode("utf-8")
-        chat_area.config(state="normal")
-        chat_area.insert(tk.END, f"Server: {ack}\n")
-        chat_area.config(state="disabled")
-        chat_area.see(tk.END)
-    except Exception as e:
-        messagebox.showerror("File Transfer Error", str(e))
+def buildChatUI():
 
-def receiveMessages():
-    while True:
-        data = client_socket.recv(BUFFER_SIZE)
-        if not data:
-            break
+    login_frame.destroy()
 
-        text = data.decode('utf-8', errors='replace').strip()
+    chat_frame = tk.Frame(root)
+    chat_frame.pack(fill="both", expand=True)
 
-        if text.startswith("ENC:"):
-            enc_part = text[4:]
-            try:
-                decrypted = decrypt_message(enc_part)
-                text = decrypted
-            except Exception as e:
-                print("Decryption failed:", e)
+    global chat_area, message_entry, mute_button
 
-        chat_area.config(state="normal")
-        chat_area.insert(tk.END, text + "\n")
-        chat_area.config(state="disabled")
-        chat_area.see(tk.END)
+    chat_area = scrolledtext.ScrolledText(chat_frame, state="disabled", wrap="word")
+    chat_area.pack(fill="both", expand=True, padx=20, pady=10)
 
+    bottom_frame = tk.Frame(chat_frame)
+    bottom_frame.pack(fill="x", padx=20, pady=10)
 
-def handleLoginAttempt():
+    message_entry = tk.Entry(bottom_frame)
+    message_entry.pack(side="left", fill="x", expand=True)
+    message_entry.bind("<Return>", sendMessage)
+    message_entry.focus_set()
+
+    send_button = tk.Button(bottom_frame, text="Send", command=sendMessage)
+    send_button.pack(side="left", padx=5)
+
+    file_button = tk.Button(bottom_frame, text="Send File", command=sendFileUI)
+    file_button.pack(side="left", padx=5)
+
+    mute_button = tk.Button(bottom_frame, text="Mute", command=toggle_notifications)
+    mute_button.pack(side="left", padx=5)
+
+    threading.Thread(target=receiveMessages, daemon=True).start()
+
+def handleLoginOrRegister():
     global client_socket
-    usr = username_entry.get().strip()
-    pwd = password_entry.get().strip()
     try:
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client_socket.connect((HOST, PORT))
-        
-        welcome = client_socket.recv(BUFFER_SIZE).decode("utf-8")
-        print("Server says:", welcome)
-        
-        client_socket.sendall("login".encode("utf-8"))
-        time.sleep(0.1)
-        
-        usr_prompt = client_socket.recv(BUFFER_SIZE).decode("utf-8")
-        print("Server says:", usr_prompt)
-        client_socket.sendall(usr.encode("utf-8"))
-        time.sleep(0.1)
-        
-        pwd_prompt = client_socket.recv(BUFFER_SIZE).decode("utf-8")
-        print("Server says:", pwd_prompt)
-        client_socket.sendall(pwd.encode("utf-8"))
-        time.sleep(0.1)
-        
-        reply = client_socket.recv(BUFFER_SIZE).decode("utf-8")
-        print("Server reply:", reply)
-        if "successful" in reply.lower():
+        print(f"Connected to server at {HOST}:{PORT}")
+
+        welcome_prompt = client_socket.recv(BUFFER_SIZE).decode('utf-8', errors='replace')
+        print("Server says:", welcome_prompt)
+
+        mode = login_mode.get()
+        client_socket.sendall(mode.encode('utf-8'))
+
+        server_prompt = client_socket.recv(BUFFER_SIZE).decode('utf-8', errors='replace')
+        print("Server says:", server_prompt)
+        client_socket.sendall(username_entry.get().encode('utf-8'))
+
+        server_prompt = client_socket.recv(BUFFER_SIZE).decode('utf-8', errors='replace')
+        print("Server says:", server_prompt)
+        client_socket.sendall(password_entry.get().encode('utf-8'))
+
+        auth_response = client_socket.recv(BUFFER_SIZE).decode('utf-8', errors='replace')
+        print("Auth response:", auth_response)
+        if "successful" in auth_response.lower():
             buildChatUI()
         else:
-            messagebox.showerror("Login Failed", reply)
+            messagebox.showerror("Error", auth_response)
+            client_socket.close()
+            client_socket = None
+
     except Exception as e:
-        messagebox.showerror("Login Error", str(e))
+        messagebox.showerror("Connection Error", str(e))
+        if client_socket:
+            client_socket.close()
+            client_socket = None
 
-tkinter = tk.Tk()
-tkinter.title("LU-Connect UI")
-tkinter.geometry("600x400")
+root = tk.Tk()
+root.title("LU-Connect")
+root.geometry("600x400")
 
-username_label = tk.Label(tkinter, text="Username:")
-username_label.pack(padx=20, pady=(40,5))
-username_entry = tk.Entry(tkinter, width=30)
-username_entry.pack(padx=20, pady=5)
-password_label = tk.Label(tkinter, text="Password:")
-password_label.pack(padx=20, pady=5)
-password_entry = tk.Entry(tkinter, show="*", width=30)
-password_entry.pack(padx=20, pady=5)
-submit_button = tk.Button(tkinter, text="Submit", command=handleLoginAttempt)
-submit_button.pack(padx=20, pady=20)
+login_frame = tk.Frame(root)
+login_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
-tkinter.mainloop()
+login_mode = tk.StringVar(value="login")
+login_radio = tk.Radiobutton(login_frame, text="Login", variable=login_mode, value="login")
+login_radio.pack(anchor="w")
+register_radio = tk.Radiobutton(login_frame, text="Register", variable=login_mode, value="register")
+register_radio.pack(anchor="w")
+
+tk.Label(login_frame, text="Username:").pack(anchor="w", pady=(10,0))
+username_entry = tk.Entry(login_frame)
+username_entry.pack(anchor="w", fill="x")
+
+tk.Label(login_frame, text="Password:").pack(anchor="w", pady=(10,0))
+password_entry = tk.Entry(login_frame, show="*")
+password_entry.pack(anchor="w", fill="x", pady=(0,10))
+
+submit_button = tk.Button(login_frame, text="Submit", command=handleLoginOrRegister)
+submit_button.pack(pady=10)
+
+root.mainloop()
