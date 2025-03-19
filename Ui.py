@@ -1,12 +1,36 @@
 import tkinter as tk
 from tkinter import scrolledtext, messagebox, filedialog
 import socket, threading, time, os
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import padding
 
 HOST = '127.0.0.1'
 PORT = 8080
 BUFFER_SIZE = 1024
 
 client_socket = None
+
+ENCRYPTION_KEY = b'sixteenbytekey!!'
+IV = b'abcdefghijklmnop'
+
+def encrypt_message(message):
+
+    padder = padding.PKCS7(128).padder()
+    padded_data = padder.update(message.encode('utf-8')) + padder.finalize()
+    cipher = Cipher(algorithms.AES(ENCRYPTION_KEY), modes.CBC(IV), backend=default_backend())
+    encryptor = cipher.encryptor()
+    ciphertext = encryptor.update(padded_data) + encryptor.finalize()
+    return ciphertext
+
+def decrypt_message(ciphertext):
+    cipher = Cipher(algorithms.AES(ENCRYPTION_KEY), modes.CBC(IV), backend=default_backend())
+    decryptor = cipher.decryptor()
+    padded_data = decryptor.update(ciphertext) + decryptor.finalize()
+    unpadder = padding.PKCS7(128).unpadder()
+    data = unpadder.update(padded_data) + unpadder.finalize()
+    return data.decode('utf-8')
+
 
 def buildChatUI():
     for widget in tkinter.winfo_children():
@@ -40,7 +64,8 @@ def sendMessage(event=None):
     print("DEBUG: Attempting to send:", msg)
     if msg and client_socket:
         try:
-            client_socket.sendall(msg.encode("utf-8"))
+            encrypted_msg = encrypt_message(msg)
+            client_socket.sendall(encrypted_msg)
             message_entry.delete(0, tk.END)
         except Exception as e:
             messagebox.showerror("Send Error", str(e))
@@ -88,7 +113,10 @@ def receiveMessages():
             data = client_socket.recv(BUFFER_SIZE)
             if not data:
                 break
-            message = data.decode("utf-8")
+            try:
+                message = decrypt_message(data)
+            except Exception as de:
+                message = data.decode("utf-8", errors="replace")
             chat_area.config(state="normal")
             chat_area.insert(tk.END, message + "\n")
             chat_area.config(state="disabled")
@@ -115,6 +143,7 @@ def handleLoginAttempt():
         client_socket.sendall(usr.encode("utf-8"))
         time.sleep(0.1)
         
+
         pwd_prompt = client_socket.recv(BUFFER_SIZE).decode("utf-8")
         print("Server says:", pwd_prompt)
         client_socket.sendall(pwd.encode("utf-8"))
