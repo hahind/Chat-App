@@ -1,36 +1,13 @@
 import tkinter as tk
 from tkinter import scrolledtext, messagebox, filedialog
 import socket, threading, time, os
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import padding
+from encryption_util import encrypt_message, decrypt_message
 
 HOST = '127.0.0.1'
 PORT = 8080
 BUFFER_SIZE = 1024
 
 client_socket = None
-
-ENCRYPTION_KEY = b'sixteenbytekey!!'
-IV = b'abcdefghijklmnop'
-
-def encrypt_message(message):
-
-    padder = padding.PKCS7(128).padder()
-    padded_data = padder.update(message.encode('utf-8')) + padder.finalize()
-    cipher = Cipher(algorithms.AES(ENCRYPTION_KEY), modes.CBC(IV), backend=default_backend())
-    encryptor = cipher.encryptor()
-    ciphertext = encryptor.update(padded_data) + encryptor.finalize()
-    return ciphertext
-
-def decrypt_message(ciphertext):
-    cipher = Cipher(algorithms.AES(ENCRYPTION_KEY), modes.CBC(IV), backend=default_backend())
-    decryptor = cipher.decryptor()
-    padded_data = decryptor.update(ciphertext) + decryptor.finalize()
-    unpadder = padding.PKCS7(128).unpadder()
-    data = unpadder.update(padded_data) + unpadder.finalize()
-    return data.decode('utf-8')
-
 
 def buildChatUI():
     for widget in tkinter.winfo_children():
@@ -64,8 +41,7 @@ def sendMessage(event=None):
     print("DEBUG: Attempting to send:", msg)
     if msg and client_socket:
         try:
-            encrypted_msg = encrypt_message(msg)
-            client_socket.sendall(encrypted_msg)
+            client_socket.sendall(msg.encode("utf-8"))
             message_entry.delete(0, tk.END)
         except Exception as e:
             messagebox.showerror("Send Error", str(e))
@@ -106,23 +82,26 @@ def sendFile(sock, filePath):
         messagebox.showerror("File Transfer Error", str(e))
 
 def receiveMessages():
-    global client_socket
-    print("DEBUG: Started receiveMessages thread")
-    try:
-        while True:
-            data = client_socket.recv(BUFFER_SIZE)
-            if not data:
-                break
+    while True:
+        data = client_socket.recv(BUFFER_SIZE)
+        if not data:
+            break
+
+        text = data.decode('utf-8', errors='replace').strip()
+
+        if text.startswith("ENC:"):
+            enc_part = text[4:]
             try:
-                message = decrypt_message(data)
-            except Exception as de:
-                message = data.decode("utf-8", errors="replace")
-            chat_area.config(state="normal")
-            chat_area.insert(tk.END, message + "\n")
-            chat_area.config(state="disabled")
-            chat_area.see(tk.END)
-    except Exception as e:
-        print("Receive error:", e)
+                decrypted = decrypt_message(enc_part)
+                text = decrypted
+            except Exception as e:
+                print("Decryption failed:", e)
+
+        chat_area.config(state="normal")
+        chat_area.insert(tk.END, text + "\n")
+        chat_area.config(state="disabled")
+        chat_area.see(tk.END)
+
 
 def handleLoginAttempt():
     global client_socket
@@ -143,7 +122,6 @@ def handleLoginAttempt():
         client_socket.sendall(usr.encode("utf-8"))
         time.sleep(0.1)
         
-
         pwd_prompt = client_socket.recv(BUFFER_SIZE).decode("utf-8")
         print("Server says:", pwd_prompt)
         client_socket.sendall(pwd.encode("utf-8"))
