@@ -10,6 +10,7 @@ BUFFER_SIZE = 1024
 
 client_socket = None
 notifications_enabled = True
+local_username = None
 
 def toggle_notifications():
     global notifications_enabled
@@ -20,34 +21,46 @@ def toggle_notifications():
         mute_button.config(text="Unmute")
 
 def receiveMessages():
+    global local_username
+    while True:
+        data = client_socket.recv(BUFFER_SIZE)
+        if not data:
+            break
+        text = data.decode('utf-8', errors='replace').strip()
 
-    try:
-        while True:
-            data = client_socket.recv(BUFFER_SIZE)
-            if not data:
-                break
-            text = data.decode('utf-8', errors='replace').strip()
+        if text.startswith("ENC:"):
+            enc_part = text[4:]
+            try:
+                text = decrypt_message(enc_part)
+            except Exception as e:
+                print("Decryption error:", e)
 
-            if text.startswith("ENC:"):
-                enc_part = text[4:]
-                try:
-                    decrypted_text = decrypt_message(enc_part)
-                    text = decrypted_text
-                except Exception as e:
-                    print("Decryption error:", e)
+        chat_area.config(state="normal")
+        chat_area.insert(tk.END, text + "\n")
+        chat_area.config(state="disabled")
+        chat_area.see(tk.END)
 
-            chat_area.config(state="normal")
-            chat_area.insert(tk.END, text + "\n")
-            chat_area.config(state="disabled")
-            chat_area.see(tk.END)
+        sender = parse_sender_username(text)
 
-            if notifications_enabled:
-                try:
-                    winsound.PlaySound("notification.wav", winsound.SND_FILENAME | winsound.SND_ASYNC)
-                except Exception as e:
-                    print("Sound error:", e)
-    except Exception as e:
-        print("Receive error:", e)
+        if notifications_enabled and sender and sender != local_username:
+            try:
+                winsound.PlaySound("notification.wav", winsound.SND_FILENAME | winsound.SND_ASYNC)
+            except Exception as e:
+                print("Sound error:", e)
+
+def parse_sender_username(full_text):
+
+    close_bracket_index = full_text.find(']')
+    if close_bracket_index == -1:
+        return None
+
+    after_bracket = full_text[close_bracket_index+1:].strip()
+    colon_index = after_bracket.find(':')
+    if colon_index == -1:
+        return None
+
+    sender_name = after_bracket[:colon_index].strip()
+    return sender_name
 
 def sendMessage(event=None):
 
@@ -99,7 +112,7 @@ def buildChatUI():
     threading.Thread(target=receiveMessages, daemon=True).start()
 
 def handleLoginOrRegister():
-    global client_socket
+    global client_socket, local_username
     try:
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client_socket.connect((HOST, PORT))
@@ -122,6 +135,7 @@ def handleLoginOrRegister():
         auth_response = client_socket.recv(BUFFER_SIZE).decode('utf-8', errors='replace')
         print("Auth response:", auth_response)
         if "successful" in auth_response.lower():
+            local_username = username_entry.get().strip()
             buildChatUI()
         else:
             messagebox.showerror("Error", auth_response)
