@@ -2,174 +2,194 @@ import tkinter as tk
 from tkinter import scrolledtext, messagebox, filedialog
 import socket, threading
 import winsound
-from encryption_util import decrypt_message 
+from encryption_util import EncryptionUtil  # Import the class
 
-HOST = '127.0.0.1'
-PORT = 8080
-BUFFER_SIZE = 1024
+# The class for all the front end for all the visuals the user will see and their handling
+class Ui:
+    HOST = '127.0.0.1'
+    PORT = 8080
+    BUFFER_SIZE = 1024
 
-client_socket = None
-notifications_enabled = True
-local_username = None
+    def __init__(self, master):
+        self.root = master
+        self.client_socket = None
+        self.notifications_enabled = True
+        self.local_username = None
 
-def toggle_notifications():
-    global notifications_enabled
-    notifications_enabled = not notifications_enabled
-    if notifications_enabled:
-        mute_button.config(text="Mute")
-    else:
-        mute_button.config(text="Unmute")
+        # Instantiate EncryptionUtil for decryption
+        self.enc_util = EncryptionUtil()
 
-def receiveMessages():
-    global local_username
-    while True:
-        data = client_socket.recv(BUFFER_SIZE)
-        if not data:
-            break
-        text = data.decode('utf-8', errors='replace').strip()
+        # UI components
+        self.login_frame = None
+        self.chat_area = None
+        self.message_entry = None
+        self.mute_button = None
+        self.login_mode = tk.StringVar(value="login")
+        self.username_entry = None
+        self.password_entry = None
 
-        if text.startswith("ENC:"):
-            enc_part = text[4:]
-            try:
-                text = decrypt_message(enc_part)
-            except Exception as e:
-                print("Decryption error:", e)
+        self.initUI()
 
-        chat_area.config(state="normal")
-        chat_area.insert(tk.END, text + "\n")
-        chat_area.config(state="disabled")
-        chat_area.see(tk.END)
+# Initialises Ui for the user and displays fields to register and log in
+    def initUI(self):
+        self.root.title("LU-Connect")
+        self.root.geometry("600x400")
 
-        sender = parse_sender_username(text)
+        self.login_frame = tk.Frame(self.root)
+        self.login_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
-        if notifications_enabled and sender and sender != local_username:
-            try:
-                winsound.PlaySound("notification.wav", winsound.SND_FILENAME | winsound.SND_ASYNC)
-            except Exception as e:
-                print("Sound error:", e)
+        login_radio = tk.Radiobutton(self.login_frame, text="Login", variable=self.login_mode, value="login")
+        login_radio.pack(anchor="w")
+        register_radio = tk.Radiobutton(self.login_frame, text="Register", variable=self.login_mode, value="register")
+        register_radio.pack(anchor="w")
 
-def parse_sender_username(full_text):
+        tk.Label(self.login_frame, text="Username:").pack(anchor="w", pady=(10,0))
+        self.username_entry = tk.Entry(self.login_frame)
+        self.username_entry.pack(anchor="w", fill="x")
 
-    close_bracket_index = full_text.find(']')
-    if close_bracket_index == -1:
-        return None
+        tk.Label(self.login_frame, text="Password:").pack(anchor="w", pady=(10,0))
+        self.password_entry = tk.Entry(self.login_frame, show="*")
+        self.password_entry.pack(anchor="w", fill="x", pady=(0,10))
 
-    after_bracket = full_text[close_bracket_index+1:].strip()
-    colon_index = after_bracket.find(':')
-    if colon_index == -1:
-        return None
+        submit_button = tk.Button(self.login_frame, text="Submit", command=self.handleLoginOrRegister)
+        submit_button.pack(pady=10)
 
-    sender_name = after_bracket[:colon_index].strip()
-    return sender_name
-
-def sendMessage(event=None):
-
-    msg = message_entry.get().strip()
-    if msg and client_socket:
-        try:
-            client_socket.sendall(msg.encode("utf-8"))
-            message_entry.delete(0, tk.END)
-        except Exception as e:
-            messagebox.showerror("Send Error", str(e))
-
-def sendFileUI():
-    file_path = filedialog.askopenfilename(
-        title="Select a file to send",
-        filetypes=[("Allowed files", "*.pdf *.docx *.jpeg"), ("All files", "*.*")]
-    )
-    if file_path:
-        pass
-
-def buildChatUI():
-
-    login_frame.destroy()
-
-    chat_frame = tk.Frame(root)
-    chat_frame.pack(fill="both", expand=True)
-
-    global chat_area, message_entry, mute_button
-
-    chat_area = scrolledtext.ScrolledText(chat_frame, state="disabled", wrap="word")
-    chat_area.pack(fill="both", expand=True, padx=20, pady=10)
-
-    bottom_frame = tk.Frame(chat_frame)
-    bottom_frame.pack(fill="x", padx=20, pady=10)
-
-    message_entry = tk.Entry(bottom_frame)
-    message_entry.pack(side="left", fill="x", expand=True)
-    message_entry.bind("<Return>", sendMessage)
-    message_entry.focus_set()
-
-    send_button = tk.Button(bottom_frame, text="Send", command=sendMessage)
-    send_button.pack(side="left", padx=5)
-
-    file_button = tk.Button(bottom_frame, text="Send File", command=sendFileUI)
-    file_button.pack(side="left", padx=5)
-
-    mute_button = tk.Button(bottom_frame, text="Mute", command=toggle_notifications)
-    mute_button.pack(side="left", padx=5)
-
-    threading.Thread(target=receiveMessages, daemon=True).start()
-
-def handleLoginOrRegister():
-    global client_socket, local_username
-    try:
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client_socket.connect((HOST, PORT))
-        print(f"Connected to server at {HOST}:{PORT}")
-
-        welcome_prompt = client_socket.recv(BUFFER_SIZE).decode('utf-8', errors='replace')
-        print("Server says:", welcome_prompt)
-
-        mode = login_mode.get()
-        client_socket.sendall(mode.encode('utf-8'))
-
-        server_prompt = client_socket.recv(BUFFER_SIZE).decode('utf-8', errors='replace')
-        print("Server says:", server_prompt)
-        client_socket.sendall(username_entry.get().encode('utf-8'))
-
-        server_prompt = client_socket.recv(BUFFER_SIZE).decode('utf-8', errors='replace')
-        print("Server says:", server_prompt)
-        client_socket.sendall(password_entry.get().encode('utf-8'))
-
-        auth_response = client_socket.recv(BUFFER_SIZE).decode('utf-8', errors='replace')
-        print("Auth response:", auth_response)
-        if "successful" in auth_response.lower():
-            local_username = username_entry.get().strip()
-            buildChatUI()
+# Handles turnong off and on notifications
+    def toggle_notifications(self):
+        self.notifications_enabled = not self.notifications_enabled
+        if self.notifications_enabled:
+            self.mute_button.config(text="Mute")
         else:
-            messagebox.showerror("Error", auth_response)
-            client_socket.close()
-            client_socket = None
+            self.mute_button.config(text="Unmute")
 
-    except Exception as e:
-        messagebox.showerror("Connection Error", str(e))
-        if client_socket:
-            client_socket.close()
-            client_socket = None
+# Handles message receiving also, if they are encrypted we call decrypt functions
+    def receiveMessages(self):
+        while True:
+            data = self.client_socket.recv(self.BUFFER_SIZE)
+            if not data:
+                break
+            text = data.decode('utf-8', errors='replace').strip()
 
-root = tk.Tk()
-root.title("LU-Connect")
-root.geometry("600x400")
+            # If message starts with "ENC:", we decrypt
+            if text.startswith("ENC:"):
+                enc_part = text[4:]
+                try:
+                    text = self.enc_util.decrypt_message(enc_part)
+                except Exception as e:
+                    print("Decryption error:", e)
 
-login_frame = tk.Frame(root)
-login_frame.pack(fill="both", expand=True, padx=20, pady=20)
+            self.chat_area.config(state="normal")
+            self.chat_area.insert(tk.END, text + "\n")
+            self.chat_area.config(state="disabled")
+            self.chat_area.see(tk.END)
 
-login_mode = tk.StringVar(value="login")
-login_radio = tk.Radiobutton(login_frame, text="Login", variable=login_mode, value="login")
-login_radio.pack(anchor="w")
-register_radio = tk.Radiobutton(login_frame, text="Register", variable=login_mode, value="register")
-register_radio.pack(anchor="w")
+            sender = self.parse_sender_username(text)
+            if self.notifications_enabled and sender and sender != self.local_username:
+                try:
+                    winsound.PlaySound("notification.wav", winsound.SND_FILENAME | winsound.SND_ASYNC)
+                except Exception as e:
+                    print("Sound error:", e)
 
-tk.Label(login_frame, text="Username:").pack(anchor="w", pady=(10,0))
-username_entry = tk.Entry(login_frame)
-username_entry.pack(anchor="w", fill="x")
+# Parses who sent the message in order not to double up on sound effects and manage who it is
+    def parse_sender_username(self, full_text):
+        close_bracket_index = full_text.find(']')
+        if close_bracket_index == -1:
+            return None
+        after_bracket = full_text[close_bracket_index+1:].strip()
+        colon_index = after_bracket.find(':')
+        if colon_index == -1:
+            return None
+        return after_bracket[:colon_index].strip()
 
-tk.Label(login_frame, text="Password:").pack(anchor="w", pady=(10,0))
-password_entry = tk.Entry(login_frame, show="*")
-password_entry.pack(anchor="w", fill="x", pady=(0,10))
+# Sends a message to the server not much else
+    def sendMessage(self, event=None):
+        msg = self.message_entry.get().strip()
+        if msg and self.client_socket:
+            try:
+                self.client_socket.sendall(msg.encode("utf-8"))
+                self.message_entry.delete(0, tk.END)
+            except Exception as e:
+                messagebox.showerror("Send Error", str(e))
 
-submit_button = tk.Button(login_frame, text="Submit", command=handleLoginOrRegister)
-submit_button.pack(pady=10)
+# File Ui to be able to send files
+    def sendFileUI(self):
+        file_path = filedialog.askopenfilename(
+            title="Select a file to send",
+            filetypes=[("Allowed files", "*.pdf *.docx *.jpeg"), ("All files", "*.*")]
+        )
+        if file_path:
+            pass
 
-root.mainloop()
+# Creates the main chat Ui where users can see all the messages
+    def buildChatUI(self):
+        self.login_frame.destroy()
+
+        chat_frame = tk.Frame(self.root)
+        chat_frame.pack(fill="both", expand=True)
+
+        self.chat_area = scrolledtext.ScrolledText(chat_frame, state="disabled", wrap="word")
+        self.chat_area.pack(fill="both", expand=True, padx=20, pady=10)
+
+        bottom_frame = tk.Frame(chat_frame)
+        bottom_frame.pack(fill="x", padx=20, pady=10)
+
+        self.message_entry = tk.Entry(bottom_frame)
+        self.message_entry.pack(side="left", fill="x", expand=True)
+        self.message_entry.bind("<Return>", self.sendMessage)
+        self.message_entry.focus_set()
+
+        send_button = tk.Button(bottom_frame, text="Send", command=self.sendMessage)
+        send_button.pack(side="left", padx=5)
+
+        file_button = tk.Button(bottom_frame, text="Send File", command=self.sendFileUI)
+        file_button.pack(side="left", padx=5)
+
+        self.mute_button = tk.Button(bottom_frame, text="Mute", command=self.toggle_notifications)
+        self.mute_button.pack(side="left", padx=5)
+
+        threading.Thread(target=self.receiveMessages, daemon=True).start()
+
+# Manages login and register ui
+    def handleLoginOrRegister(self):
+        try:
+            self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.client_socket.connect((self.HOST, self.PORT))
+            print(f"Connected to server at {self.HOST}:{self.PORT}")
+
+            welcome_prompt = self.client_socket.recv(self.BUFFER_SIZE).decode('utf-8', errors='replace')
+            print("Server says:", welcome_prompt)
+
+            mode = self.login_mode.get()
+            self.client_socket.sendall(mode.encode('utf-8'))
+
+            server_prompt = self.client_socket.recv(self.BUFFER_SIZE).decode('utf-8', errors='replace')
+            print("Server says:", server_prompt)
+            self.client_socket.sendall(self.username_entry.get().encode('utf-8'))
+
+            server_prompt = self.client_socket.recv(self.BUFFER_SIZE).decode('utf-8', errors='replace')
+            print("Server says:", server_prompt)
+            self.client_socket.sendall(self.password_entry.get().encode('utf-8'))
+
+            auth_response = self.client_socket.recv(self.BUFFER_SIZE).decode('utf-8', errors='replace')
+            print("Auth response:", auth_response)
+            if "successful" in auth_response.lower():
+                self.local_username = self.username_entry.get().strip()
+                self.buildChatUI()
+            else:
+                messagebox.showerror("Error", auth_response)
+                self.client_socket.close()
+                self.client_socket = None
+        except Exception as e:
+            messagebox.showerror("Connection Error", str(e))
+            if self.client_socket:
+                self.client_socket.close()
+                self.client_socket = None
+
+# The main run function
+def main():
+    root = tk.Tk()
+    app = Ui(root)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
